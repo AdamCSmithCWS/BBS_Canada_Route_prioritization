@@ -71,7 +71,7 @@ maj_cent_repro <- maj_cent %>%
 # load bbs route information ----------------------------------------------
 
 route_paths <- sf::read_sf("data/gis/AllRoutes2024.shp") %>%
-  group_by(route,Active,
+  group_by(Nbr_FullNa,route,Active,
            Province,ProvRoute) %>%
   summarise() %>%
   st_transform(crs = st_crs(degree_blocks))
@@ -184,7 +184,7 @@ pop_100km_l <- route_paths_buffers_100k %>%
   st_join(y = pop_map_repro,
           largest = FALSE) %>%
   st_drop_geometry() %>%
-  group_by(route,Active,
+  group_by(Nbr_FullNa,route,Active,
            Province,ProvRoute) %>%
   summarise(population = sum(population,na.rm = TRUE),
             distance = "100km")
@@ -193,7 +193,7 @@ pop_200km_l <- route_paths_buffers_200k %>%
   st_join(y = pop_map_repro,
           largest = FALSE) %>%
   st_drop_geometry() %>%
-  group_by(route,Active,
+  group_by(Nbr_FullNa,route,Active,
            Province,ProvRoute) %>%
   summarise(population = sum(population,na.rm = TRUE),
             distance = "200km")
@@ -203,7 +203,7 @@ pop_300km_l <- route_paths_buffers_300k %>%
   st_join(y = pop_map_repro,
           largest = FALSE) %>%
   st_drop_geometry() %>%
-  group_by(route,Active,
+  group_by(Nbr_FullNa,route,Active,
            Province,ProvRoute) %>%
   summarise(population = sum(population,na.rm = TRUE),
             distance = "300km")
@@ -215,11 +215,61 @@ pop_w_in_distance_long <- pop_100km_l %>%
 
 
 
-
 route_paths_pop_in_dist_long <- route_paths %>%
   left_join(pop_w_in_distance_long)
 
 pop_thresholds <- c(0,1e4,5e4,1e5,2.5e5,5e7)
+
+
+
+pop_w_in_distance_wide <- pop_w_in_distance_long %>%
+  pivot_wider(id_cols = c(Nbr_FullNa,route,Active,Province,ProvRoute),
+              names_from = distance,
+              names_prefix = "Population_with_in_",
+              values_from = population) %>%
+  inner_join( sf::st_drop_geometry(route_paths)) %>%
+  mutate(Population_category_100km = cut(Population_with_in_100km,
+                                         breaks = pop_thresholds),
+         Population_category_200km = cut(Population_with_in_200km,
+                                         breaks = pop_thresholds),
+         Population_category_300km = cut(Population_with_in_300km,
+                                         breaks = pop_thresholds))
+
+
+# identifying which routes have data ------------------------------------
+
+
+#bbsBayes2::fetch_bbs_data(include_unacceptable = TRUE, force = TRUE)
+# saveRDS(load_bbs_data(),
+#         "All_bbs_data_with_unacceptable.rds")
+#
+# bbsBayes2::fetch_bbs_data(include_unacceptable = FALSE, force = TRUE)
+
+surveys <- readRDS("All_bbs_data_with_unacceptable.rds")$routes %>%
+  filter(country_num == 124) %>%
+  group_by(route,state_num) %>%
+  summarise(first_year = min(year),
+            most_recent_year = max(year),
+            n_years = n(),
+            n_years_since_2020 = length(which(year > 2020))) %>%
+  mutate(rt = ifelse(route < 10,paste0("00",route),
+                     NA),
+         rt = ifelse(route < 100 & route > 9,paste0("0",route),
+                     rt),
+         rt = ifelse(route > 99,paste0(route),
+                     rt),
+         ProvRoute = as.integer(paste0(state_num,rt))) %>%
+  ungroup() %>%
+  select(-c(route,state_num,rt))
+
+pop_w_in_distance_wide2 <- pop_w_in_distance_wide %>%
+  left_join(surveys)
+
+
+write_excel_csv(pop_w_in_distance_wide2,
+                "BBS routes population within buffers of route paths.csv")
+
+
 #
 # pop_in_dist_map <- ggplot()+
 #   geom_sf(data = ca_map, fill = NA)+
@@ -281,139 +331,157 @@ dev.off()
 
 
 
-routes_wide <- bbsBayes2::load_bbs_data()[["routes"]] %>%
-  filter(country == "CA") %>%
-  arrange(year) %>%
-  select(route_name,state_num,route,year,obs_n) %>%
-  pivot_wider(names_from = year,
-              values_from = obs_n,
-              names_prefix = "Surveyed_by_in_")
 
 
-routes5 <- bbsBayes2::load_bbs_data()[["routes"]] %>%
-  filter(country == "CA",
-         year > 2017) %>%
-  group_by(route_name,state_num,route) %>%
-  summarise(n_surveys_since_2018 = n())
 
 
-routes <- bbsBayes2::load_bbs_data()[["routes"]] %>%
-  filter(country == "CA") %>%
-  group_by(route_name,state_num,route,
-           st_abrev,country,bcr,
-           latitude,longitude) %>%
-  summarise(n_surveys_total = n()) %>%
-  left_join(routes5) %>%
-  left_join(routes_wide) %>%
-  mutate(long = longitude,
-         lat = latitude) %>%
-  st_as_sf(coords = c("long","lat"))
-
-routes <- st_set_crs(routes, 4269) %>%
-  st_transform(crs = st_crs(pop_map))
 
 
-tst <- ggplot()+
-  geom_sf(data = routes,
-          aes(colour = st_abrev),
-          inherit.aes = FALSE)+
-  geom_sf(data = maj_cent,
-          alpha = 0.2)
-tst
-
-route_buffers_100km <- st_buffer(routes,
-                                 dist = 100000)
-
-route_buffers_200km <- st_buffer(routes,
-                                 dist = 200000)
-
-route_buffers_300km <- st_buffer(routes,
-                                 dist = 300000)
 
 
-tst <- ggplot()+
-  geom_sf(data = route_buffers_300km,
-          aes(colour = st_abrev),
-          fill = NA)+
-  geom_sf(data = maj_cent,
-          alpha = 0.2)
-tst
 
-pop_100km <- route_buffers_100km %>%
-  st_join(y = pop_map,
-          largest = FALSE) %>%
-  st_drop_geometry() %>%
-  group_by(route_name,state_num,route,
-           st_abrev,country) %>%
-  summarise(population_100km = sum(population,na.rm = TRUE))
 
+
+
+
+
+# Old code run with caution -----------------------------------------------
+
+#
+#
+# routes_wide <- bbsBayes2::load_bbs_data()[["routes"]] %>%
+#   filter(country == "CA") %>%
+#   arrange(year) %>%
+#   select(route_name,state_num,route,year,obs_n) %>%
+#   pivot_wider(names_from = year,
+#               values_from = obs_n,
+#               names_prefix = "Surveyed_by_in_")
+#
+#
+# routes5 <- bbsBayes2::load_bbs_data()[["routes"]] %>%
+#   filter(country == "CA",
+#          year > 2017) %>%
+#   group_by(route_name,state_num,route) %>%
+#   summarise(n_surveys_since_2018 = n())
+#
+#
+# routes <- bbsBayes2::load_bbs_data()[["routes"]] %>%
+#   filter(country == "CA") %>%
+#   group_by(route_name,state_num,route,
+#            st_abrev,country,bcr,
+#            latitude,longitude) %>%
+#   summarise(n_surveys_total = n()) %>%
+#   left_join(routes5) %>%
+#   left_join(routes_wide) %>%
+#   mutate(long = longitude,
+#          lat = latitude) %>%
+#   st_as_sf(coords = c("long","lat"))
+#
+# routes <- st_set_crs(routes, 4269) %>%
+#   st_transform(crs = st_crs(pop_map))
+#
+#
 # tst <- ggplot()+
-#   geom_sf(data = pop_100km,
-#           aes(fill = population_100km),
-#           alpha = 0.2)+
+#   geom_sf(data = routes,
+#           aes(colour = st_abrev),
+#           inherit.aes = FALSE)+
 #   geom_sf(data = maj_cent,
 #           alpha = 0.2)
 # tst
-
-
-pop_200km <- route_buffers_200km %>%
-  st_join(y = pop_map,
-          largest = FALSE) %>%
-  st_drop_geometry() %>%
-  group_by(route_name,state_num,route,
-           st_abrev,country) %>%
-  summarise(population_200km = sum(population,na.rm = TRUE))
-
-
-pop_300km <- route_buffers_300km %>%
-  st_join(y = pop_map,
-          largest = FALSE) %>%
-  st_drop_geometry() %>%
-  group_by(route_name,state_num,route,
-           st_abrev,country) %>%
-  summarise(population_300km = sum(population,na.rm = TRUE))
-
-
-pop_summaries <- pop_100km %>%
-  full_join(pop_200km) %>%
-  full_join(pop_300km)
-
-q100km <- quantile(pop_summaries$population_100km,0.05)
-q200km <- quantile(pop_summaries$population_200km,0.05)
-q300km <- quantile(pop_summaries$population_300km,0.05)
-
-pop_summaries <- pop_summaries %>%
-  mutate(pop_5th_percentile_100km = ifelse(population_100km < q100km,
-                                           TRUE,FALSE),
-         pop_5th_percentile_200km = ifelse(population_200km < q200km,
-                                           TRUE,FALSE),
-         pop_5th_percentile_300km = ifelse(population_300km < q300km,
-                                           TRUE,FALSE))
-
-
-routes_wpop <- routes %>%
-  full_join(pop_summaries)
-
-
-tst <- ggplot()+
-  geom_sf(data = routes_wpop,
-          aes(colour = pop_5th_percentile_100km),
-          alpha = 0.2)+
-  scale_colour_viridis_d(direction = -1)
-tst
-
-tst <- ggplot()+
-  geom_sf(data = routes_wpop,
-          aes(colour = pop_5th_percentile_200km),
-          alpha = 0.2)+
-  scale_colour_viridis_d(direction = -1)
-tst
-
-routes_out <- routes %>%
-  st_drop_geometry()
-
-route_summary <- pop_summaries %>%
-  left_join(routes_out) %>%
-  arrange(st_abrev,population_100km)
-
-write_excel_csv(route_summary,"routes_w_population_in_3_buffers.csv")
+#
+# route_buffers_100km <- st_buffer(routes,
+#                                  dist = 100000)
+#
+# route_buffers_200km <- st_buffer(routes,
+#                                  dist = 200000)
+#
+# route_buffers_300km <- st_buffer(routes,
+#                                  dist = 300000)
+#
+#
+# tst <- ggplot()+
+#   geom_sf(data = route_buffers_300km,
+#           aes(colour = st_abrev),
+#           fill = NA)+
+#   geom_sf(data = maj_cent,
+#           alpha = 0.2)
+# tst
+#
+# pop_100km <- route_buffers_100km %>%
+#   st_join(y = pop_map,
+#           largest = FALSE) %>%
+#   st_drop_geometry() %>%
+#   group_by(route_name,state_num,route,
+#            st_abrev,country) %>%
+#   summarise(population_100km = sum(population,na.rm = TRUE))
+#
+# # tst <- ggplot()+
+# #   geom_sf(data = pop_100km,
+# #           aes(fill = population_100km),
+# #           alpha = 0.2)+
+# #   geom_sf(data = maj_cent,
+# #           alpha = 0.2)
+# # tst
+#
+#
+# pop_200km <- route_buffers_200km %>%
+#   st_join(y = pop_map,
+#           largest = FALSE) %>%
+#   st_drop_geometry() %>%
+#   group_by(route_name,state_num,route,
+#            st_abrev,country) %>%
+#   summarise(population_200km = sum(population,na.rm = TRUE))
+#
+#
+# pop_300km <- route_buffers_300km %>%
+#   st_join(y = pop_map,
+#           largest = FALSE) %>%
+#   st_drop_geometry() %>%
+#   group_by(route_name,state_num,route,
+#            st_abrev,country) %>%
+#   summarise(population_300km = sum(population,na.rm = TRUE))
+#
+#
+# pop_summaries <- pop_100km %>%
+#   full_join(pop_200km) %>%
+#   full_join(pop_300km)
+#
+# q100km <- quantile(pop_summaries$population_100km,0.05)
+# q200km <- quantile(pop_summaries$population_200km,0.05)
+# q300km <- quantile(pop_summaries$population_300km,0.05)
+#
+# pop_summaries <- pop_summaries %>%
+#   mutate(pop_5th_percentile_100km = ifelse(population_100km < q100km,
+#                                            TRUE,FALSE),
+#          pop_5th_percentile_200km = ifelse(population_200km < q200km,
+#                                            TRUE,FALSE),
+#          pop_5th_percentile_300km = ifelse(population_300km < q300km,
+#                                            TRUE,FALSE))
+#
+#
+# routes_wpop <- routes %>%
+#   full_join(pop_summaries)
+#
+#
+# tst <- ggplot()+
+#   geom_sf(data = routes_wpop,
+#           aes(colour = pop_5th_percentile_100km),
+#           alpha = 0.2)+
+#   scale_colour_viridis_d(direction = -1)
+# tst
+#
+# tst <- ggplot()+
+#   geom_sf(data = routes_wpop,
+#           aes(colour = pop_5th_percentile_200km),
+#           alpha = 0.2)+
+#   scale_colour_viridis_d(direction = -1)
+# tst
+#
+# routes_out <- routes %>%
+#   st_drop_geometry()
+#
+# route_summary <- pop_summaries %>%
+#   left_join(routes_out) %>%
+#   arrange(st_abrev,population_100km)
+#
+# write_excel_csv(route_summary,"routes_w_population_in_3_buffers.csv")
