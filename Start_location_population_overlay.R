@@ -229,11 +229,11 @@ pop_w_in_distance_wide <- pop_w_in_distance_long %>%
               values_from = population) %>%
   inner_join( sf::st_drop_geometry(route_paths)) %>%
   mutate(Population_category_100km = cut(Population_with_in_100km,
-                                         breaks = pop_thresholds),
+                                         include.lowest = TRUE,breaks = pop_thresholds),
          Population_category_200km = cut(Population_with_in_200km,
-                                         breaks = pop_thresholds),
+                                         include.lowest = TRUE,breaks = pop_thresholds),
          Population_category_300km = cut(Population_with_in_300km,
-                                         breaks = pop_thresholds))
+                                         include.lowest = TRUE,breaks = pop_thresholds))
 
 
 # identifying which routes have data ------------------------------------
