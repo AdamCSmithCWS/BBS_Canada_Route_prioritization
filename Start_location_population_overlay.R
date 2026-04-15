@@ -332,14 +332,96 @@ dev.off()
 
 
 
+# CWS contributed routes --------------------------------------------------
+provs <- load_map("prov_state") %>%
+  filter(country == "Canada")
+
+
+# surveys <- readRDS("All_bbs_data_with_unacceptable.rds")$routes %>%
+#   filter(country_num == 124) %>%
+#   group_by(route,state_num) %>%
+#   summarise(first_year = min(year),
+#             most_recent_year = max(year),
+#             n_years = n(),
+#             n_years_since_2020 = length(which(year > 2020))) %>%
+#   mutate(rt = ifelse(route < 10,paste0("00",route),
+#                      NA),
+#          rt = ifelse(route < 100 & route > 9,paste0("0",route),
+#                      rt),
+#          rt = ifelse(route > 99,paste0(route),
+#                      rt),
+#          ProvRoute = as.integer(paste0(state_num,rt))) %>%
+#   ungroup()
+
+cws_routes <- read_excel("data/BBS_ECCC_financialsupport.xlsx") %>%
+  rename(comments = `...6`)
+
+cws_map <- route_paths %>%
+  full_join(cws_routes,
+            by = c("route",
+                   "Province" = "province")) %>%
+  mutate(category = ifelse(is.na(category),"Other",category),
+         category = ifelse(category %in% c("cws","stb"),
+                           "CWS staff",category),
+         category = ifelse(category %in% c("financial_support"),
+                           "Financially Supported",category)) %>%
+  left_join(surveys,
+            by = c("ProvRoute"))
 
 
 
 
+cws_routes_map <- ggplot()+
+  geom_sf(data = provs, fill = grey(0.95))+
+  geom_sf(data = large_cent, size = 0.6)+
+  geom_sf(data = cws_map, aes(colour = category),
+          linewidth = 1,
+          alpha = 0.8,
+          lineend = "round")+
+  scale_colour_viridis_d(name = "BBS routes\nsurveyed or\nsupported by CWS",
+                         direction = -1,
+                         option = "turbo",
+                         end = 0.9,begin = 0.1)+
+  # geom_sf_text(data = cws_map,
+  #              aes(label = ProvRoute,
+  #                  colour = category),
+  #              size = 0.6)+
+  labs(subtitle = paste("BBS routes surveyed by CWS(ECCC) staff or financially supported by CWS. \nBlack dots show locations of population centres with > 50,000 people."))+
+  theme_bw()
+
+
+pdf("CWS_supported_routes.pdf",
+    width = 11,
+    height = 8.5)
+print(cws_routes_map)
+dev.off()
 
 
 
+cws_routes_map <- ggplot()+
+  geom_sf(data = provs, fill = grey(0.95))+
+  geom_sf(data = large_cent, size = 0.6)+
+  geom_sf(data = filter(cws_map,n_years_since_2020 > 1), aes(colour = category),
+          linewidth = 1,
+          alpha = 0.8,
+          lineend = "round")+
+  scale_colour_viridis_d(name = "BBS routes\nsurveyed or\nsupported by \nCWS since 2020",
+                         direction = -1,
+                         option = "turbo",
+                         end = 0.9,begin = 0.1)+
+  # geom_sf_text(data = cws_map,
+  #              aes(label = ProvRoute,
+  #                  colour = category),
+  #              size = 0.6)+
+  labs(subtitle = paste("BBS routes surveyed by CWS(ECCC) staff or financially supported by CWS. \nBlack dots show locations of population centres with > 50,000 people."))+
+  theme_bw()
 
+
+pdf("CWS_supported_routes_surveyed_since_2020.pdf",
+    width = 11,
+    height = 8.5)
+print(cws_routes_map)
+dev.off()
 
 
 
