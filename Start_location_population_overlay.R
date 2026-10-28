@@ -77,8 +77,17 @@ route_paths <- sf::read_sf("data/gis/AllRoutes2024.shp") %>%
   st_transform(crs = st_crs(degree_blocks))
 
 
+large_cent <- pop_map %>%
+  filter(population >50000) %>%
+  sf::st_transform(crs = st_crs(route_paths))
 
-re_calc <- FALSE
+pop_map_repro <- pop_map %>%
+  sf::st_transform(crs = st_crs(route_paths))
+
+
+
+
+re_calc <- TRUE
 if(re_calc){
 db_distance <- st_distance(x = db_map_can,
                            y = maj_cent_repro) %>%
@@ -170,13 +179,6 @@ route_paths_buffers_200k <- route_paths %>%
 route_paths_buffers_300k <- route_paths %>%
   st_buffer(3e5) # 100km buffer of route path
 
-large_cent <- pop_map %>%
-  filter(population >50000) %>%
-  sf::st_transform(crs = st_crs(route_paths))
-
-pop_map_repro <- pop_map %>%
-  sf::st_transform(crs = st_crs(route_paths))
-
 
 
 
@@ -239,11 +241,21 @@ pop_w_in_distance_wide <- pop_w_in_distance_long %>%
 # identifying which routes have data ------------------------------------
 
 
-#bbsBayes2::fetch_bbs_data(include_unacceptable = TRUE, force = TRUE)
+# bbsBayes2::fetch_bbs_data(release = 2026,
+#                           include_unacceptable = TRUE,
+#                           force = TRUE)
+#
 # saveRDS(load_bbs_data(),
 #         "All_bbs_data_with_unacceptable.rds")
 #
 # bbsBayes2::fetch_bbs_data(include_unacceptable = FALSE, force = TRUE)
+
+
+most_recent_obs <- function(year,obs_n){
+  o <- obs_n[which(year == max(year))]
+  return(o)
+}
+
 
 surveys <- readRDS("All_bbs_data_with_unacceptable.rds")$routes %>%
   filter(country_num == 124) %>%
@@ -251,7 +263,8 @@ surveys <- readRDS("All_bbs_data_with_unacceptable.rds")$routes %>%
   summarise(first_year = min(year),
             most_recent_year = max(year),
             n_years = n(),
-            n_years_since_2020 = length(which(year > 2020))) %>%
+            n_years_since_2020 = length(which(year > 2020)),
+            recent_obs_n = most_recent_obs(year,obs_n)) %>%
   mutate(rt = ifelse(route < 10,paste0("00",route),
                      NA),
          rt = ifelse(route < 100 & route > 9,paste0("0",route),
@@ -262,12 +275,57 @@ surveys <- readRDS("All_bbs_data_with_unacceptable.rds")$routes %>%
   ungroup() %>%
   select(-c(route,state_num,rt))
 
+can_obs <- read_csv("data/canadian_observers_2022.csv") |>
+  rename(obs_n = ObsN)
+
 pop_w_in_distance_wide2 <- pop_w_in_distance_wide %>%
-  left_join(surveys)
+  left_join(surveys) |>
+  mutate(across(.cols = c(n_years:n_years_since_2020),
+                .fns = ~ replace_na(.x,replace = 0))) |>
+  left_join(can_obs, by = c("recent_obs_n" = "obs_n"))
 
 
-write_excel_csv(pop_w_in_distance_wide2,
-                "BBS routes population within buffers of route paths.csv")
+cws_routes <- read_excel("data/BBS_ECCC_financialsupport.xlsx") %>%
+  rename(comments = `...6`) |>
+  mutate(rt = ifelse(route < 10,paste0("00",route),
+                     NA),
+         rt = ifelse(route < 100 & route > 9,paste0("0",route),
+                     rt),
+         rt = ifelse(route > 99,paste0(route),
+                     rt),
+         ProvRoute = as.integer(paste0(province,rt))) |>
+  select(-c(route,province,rt))
+
+pop_w_in_distance_wide3 <- pop_w_in_distance_wide2 |>
+  left_join(cws_routes, by = "ProvRoute")
+
+
+
+write_excel_csv(pop_w_in_distance_wide3,
+                "BBS routes population within buffers of route paths Oct 28.csv")
+
+
+
+
+#
+# surveys <- readRDS("All_bbs_data_with_unacceptable.rds")$routes %>%
+#   filter(country_num == 124) %>%
+#   group_by(route,state_num) %>%
+#   summarise(first_year = min(year),
+#             most_recent_year = max(year),
+#             n_years = n(),
+#             n_years_since_2020 = length(which(year > 2020))) %>%
+#   mutate(rt = ifelse(route < 10,paste0("00",route),
+#                      NA),
+#          rt = ifelse(route < 100 & route > 9,paste0("0",route),
+#                      rt),
+#          rt = ifelse(route > 99,paste0(route),
+#                      rt),
+#          ProvRoute = as.integer(paste0(state_num,rt))) %>%
+#   ungroup() %>%
+#   select(-c(route,state_num,rt))
+#
+#
 
 
 #
@@ -353,8 +411,8 @@ provs <- load_map("prov_state") %>%
 #          ProvRoute = as.integer(paste0(state_num,rt))) %>%
 #   ungroup()
 
-cws_routes <- read_excel("data/BBS_ECCC_financialsupport.xlsx") %>%
-  rename(comments = `...6`)
+
+
 
 cws_map <- route_paths %>%
   full_join(cws_routes,
@@ -366,13 +424,16 @@ cws_map <- route_paths %>%
          category = ifelse(category %in% c("financial_support"),
                            "Financially Supported",category)) %>%
   left_join(surveys,
-            by = c("ProvRoute"))
+            by = c("ProvRoute")) %>%
+  filter(n_years > 0) %>%
+  mutate(surveyed_since_2020 = ifelse(n_years_since_2020 > 0,
+                                      TRUE,FALSE))
 
 
 
 
 cws_routes_map <- ggplot()+
-  geom_sf(data = provs, fill = grey(0.95))+
+  geom_sf(data = provs, fill = NA)+
   geom_sf(data = large_cent, size = 0.6)+
   geom_sf(data = cws_map, aes(colour = category),
           linewidth = 1,
@@ -382,6 +443,7 @@ cws_routes_map <- ggplot()+
                          direction = -1,
                          option = "turbo",
                          end = 0.9,begin = 0.1)+
+  scale_alpha_discrete(name = "Surveyed since 2020")+
   # geom_sf_text(data = cws_map,
   #              aes(label = ProvRoute,
   #                  colour = category),
@@ -397,18 +459,19 @@ print(cws_routes_map)
 dev.off()
 
 
-
-cws_routes_map <- ggplot()+
-  geom_sf(data = provs, fill = grey(0.95))+
+cws_routes_map1 <- ggplot()+
+  geom_sf(data = provs, fill = NA)+
   geom_sf(data = large_cent, size = 0.6)+
-  geom_sf(data = filter(cws_map,n_years_since_2020 > 1), aes(colour = category),
+  geom_sf(data = cws_map, aes(colour = category,
+                              alpha = surveyed_since_2020),
           linewidth = 1,
-          alpha = 0.8,
+          #alpha = 0.8,
           lineend = "round")+
-  scale_colour_viridis_d(name = "BBS routes\nsurveyed or\nsupported by \nCWS since 2020",
+  scale_colour_viridis_d(name = "BBS routes\nsurveyed or\nsupported by CWS",
                          direction = -1,
                          option = "turbo",
                          end = 0.9,begin = 0.1)+
+  scale_alpha_discrete(name = "Surveyed since 2020")+
   # geom_sf_text(data = cws_map,
   #              aes(label = ProvRoute,
   #                  colour = category),
@@ -420,7 +483,7 @@ cws_routes_map <- ggplot()+
 pdf("CWS_supported_routes_surveyed_since_2020.pdf",
     width = 11,
     height = 8.5)
-print(cws_routes_map)
+print(cws_routes_map1)
 dev.off()
 
 
