@@ -10,36 +10,31 @@ library(rnaturalearthhires)
 library(maps)
 
 routes <- st_read("data/gis/ALL_ROUTES2024.shp") |>
-  group_by(ProvRoute,Active) |>
+  group_by(ProvRoute) |>
   summarise() |>
   st_make_valid()
 
 
-priorities <- read_xlsx("data/Remote Route Funding prioritization.xlsx") |>
-  rename(paid = `paid obs...14`,
-         obs = `obs...15`,
-         affiliation = `obs affiliation...16`,
+#priorities <- read_xlsx("data/Remote Route Funding prioritization.xlsx") |>
+priorities <- read_csv("data/Remote Route Funding prioritizationV2.csv") |>
+  rename(paid = `paid obs...20`,
+         obs_old = obs,
+         obs = Name,
+         affiliation = `obs affiliation...22`,
          last_run = `last run`,
          filled = `current status`) |>
-  mutate(rt = ifelse(route < 10,paste0("00",route),
-                     NA),
-         rt = ifelse(route < 100 & route > 9,paste0("0",route),
-                     rt),
-         rt = ifelse(route > 99,paste0(route),
-                     rt),
-         ProvRoute = as.integer(paste0(state_num,rt))) |>
   select(c(ProvRoute,
-           route_name,
-           state_num,
+           Nbr_FullNa,
+           Province,
            route,
-           st_abrev,
-           starts_with("pop"),
+           starts_with("Pop"),
            priority,
            last_run,
            paid,
            obs,
            affiliation,
-           filled))
+           filled)) |>
+  distinct()
 
 
 base <- load_map("prov_state") |>
